@@ -1,0 +1,60 @@
+---
+title: "Data Examination & Preprocessing"
+author: "Kevin Babb"
+date: "October 28, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
+
+
+Loading of packages required for the data analysis
+```{r packages, echo=FALSE}
+library("tidyverse")
+library("readr")
+```
+
+
+Loading of data into R
+```{r raw_statistics}
+raw_stats <- read.csv("~/Documents/Class/CKME-136/Workshop/all_energy_statistics.csv")
+```
+
+
+We now look at the data loaded
+```{r data_examination}
+View(raw_stats)
+```
+
+
+Looking further:
+```{r}
+summary(raw_stats)
+
+str(raw_stats)
+
+anyNA(raw_stats$quantity_footnotes)
+
+sum(is.na(raw_stats$quantity_footnotes))
+
+ncol(raw_stats)
+
+nrow(raw_stats)
+
+```
+
+
+
+Dataset is 7 columns x 1,189,482 rows. Lots of N/A's in "quantity footnotes variable". Check to see how many.
+```{r}
+(sum(is.na(raw_stats$quantity_footnotes))/nrow(raw_stats))*100
+```
+
