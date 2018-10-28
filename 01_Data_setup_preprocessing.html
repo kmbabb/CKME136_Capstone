@@ -134,12 +134,12 @@ $(document).ready(function () {
 <p>This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <a href="http://rmarkdown.rstudio.com" class="uri">http://rmarkdown.rstudio.com</a>.</p>
 <p>When you click the <strong>Knit</strong> button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.</p>
 <p>Loading of packages required for the data analysis</p>
-<pre><code>## ── Attaching packages ──────────────────────────────────────────────────────── tidyverse 1.2.1 ──</code></pre>
+<pre><code>## ── Attaching packages ───────────────────────────────────────────────────────── tidyverse 1.2.1 ──</code></pre>
 <pre><code>## ✔ ggplot2 3.1.0     ✔ purrr   0.2.5
 ## ✔ tibble  1.4.2     ✔ dplyr   0.7.7
 ## ✔ tidyr   0.8.1     ✔ stringr 1.3.1
 ## ✔ readr   1.1.1     ✔ forcats 0.3.0</code></pre>
-<pre><code>## ── Conflicts ─────────────────────────────────────────────────────────── tidyverse_conflicts() ──
+<pre><code>## ── Conflicts ──────────────────────────────────────────────────────────── tidyverse_conflicts() ──
 ## ✖ dplyr::filter() masks stats::filter()
 ## ✖ dplyr::lag()    masks stats::lag()</code></pre>
 <p>Loading of data into R</p>
@@ -200,6 +200,235 @@ $(document).ready(function () {
 <p>Dataset is 7 columns x 1,189,482 rows. Lots of N/A’s in “quantity footnotes variable”. Check to see how many.</p>
 <pre class="r"><code>(sum(is.na(raw_stats$quantity_footnotes))/nrow(raw_stats))*100</code></pre>
 <pre><code>## [1] 86.21703</code></pre>
+<p>86% N/As! We will need to drop this column. For now, we need some descriptive statistics of the individual columns. First country_or_area</p>
+<pre class="r"><code>country_detail &lt;- raw_stats %&gt;% group_by(country_or_area) %&gt;% summarise(occurences = length(country_or_area)) %&gt;% arrange(desc(occurences))
+
+head(country_detail, n=10)</code></pre>
+<pre><code>## # A tibble: 10 x 2
+##    country_or_area occurences
+##    &lt;fct&gt;                &lt;int&gt;
+##  1 Germany              20422
+##  2 United States        19847
+##  3 Poland               19802
+##  4 Austria              17440
+##  5 Romania              17357
+##  6 France               17236
+##  7 Japan                17037
+##  8 Czechia              16588
+##  9 Italy                16312
+## 10 Netherlands          15955</code></pre>
+<pre class="r"><code>tail(country_detail, n=10)</code></pre>
+<pre><code>## # A tibble: 10 x 2
+##    country_or_area                          occurences
+##    &lt;fct&gt;                                         &lt;int&gt;
+##  1 South Sudan                                     305
+##  2 Germany, Fed. R. (former)                       293
+##  3 Bonaire, St Eustatius, Saba                     224
+##  4 Sint Maarten (Dutch part)                       219
+##  5 German Dem. R. (former)                         106
+##  6 Antarctic Fisheries                              90
+##  7 Pacific Islands (former)                         68
+##  8 Yemen, Dem. (former)                             61
+##  9 Yemen Arab Rep. (former)                         45
+## 10 Commonwealth of Independent States (CIS)         16</code></pre>
+<pre class="r"><code>anyNA(country_detail)</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>str(country_detail)</code></pre>
+<pre><code>## Classes 'tbl_df', 'tbl' and 'data.frame':    243 obs. of  2 variables:
+##  $ country_or_area: Factor w/ 243 levels &quot;Afghanistan&quot;,..: 84 229 172 14 178 77 111 58 109 153 ...
+##  $ occurences     : int  20422 19847 19802 17440 17357 17236 17037 16588 16312 15955 ...</code></pre>
+<pre class="r"><code>summary(country_detail)</code></pre>
+<pre><code>##        country_or_area   occurences   
+##  Afghanistan   :  1    Min.   :   16  
+##  Albania       :  1    1st Qu.: 1914  
+##  Algeria       :  1    Median : 3406  
+##  American Samoa:  1    Mean   : 4895  
+##  Andorra       :  1    3rd Qu.: 5890  
+##  Angola        :  1    Max.   :20422  
+##  (Other)       :237</code></pre>
+<p>Commodity transaction stats:</p>
+<pre class="r"><code>commodity_detail &lt;- raw_stats %&gt;% group_by(commodity_transaction) %&gt;% summarise(occurences = length(commodity_transaction)) %&gt;% arrange(desc(occurences))
+
+head(commodity_detail, n=10)</code></pre>
+<pre><code>## # A tibble: 10 x 2
+##    commodity_transaction                                        occurences
+##    &lt;fct&gt;                                                             &lt;int&gt;
+##  1 From combustible fuels – Main activity                             6601
+##  2 Electricity - Gross demand                                         5532
+##  3 Electricity - Gross production                                     5523
+##  4 Electricity - net production                                       5523
+##  5 Electricity - Own use by electricity, heat and CHP plants          5523
+##  6 Electricity - total production, main activity                      5523
+##  7 Electricity - total net installed capacity of electric powe…       5521
+##  8 Electricity - total net installed capacity of electric powe…       5521
+##  9 Electricity - Final energy consumption                             5499
+## 10 Electricity - Consumption by other                                 5491</code></pre>
+<pre class="r"><code>tail(commodity_detail, n=10)</code></pre>
+<pre><code>## # A tibble: 10 x 2
+##    commodity_transaction                                        occurences
+##    &lt;fct&gt;                                                             &lt;int&gt;
+##  1 Refinery gas - Transformation in coke ovens                           1
+##  2 &quot;Vegetal waste - Consumption by construction &quot;                        1
+##  3 &quot;Vegetal waste - Consumption by mining and quarrying &quot;                1
+##  4 &quot;White spirit and special boiling point industrial spirits …          1
+##  5 &quot;White spirit and special boiling point industrial spirits …          1
+##  6 &quot;White spirit and special boiling point industrial spirits …          1
+##  7 White spirit and special boiling point industrial spirits -…          1
+##  8 &quot;White spirit and special boiling point industrial spirits …          1
+##  9 &quot;White spirit and special boiling point industrial spirits …          1
+## 10 &quot;White spirit and special boiling point industrial spirits …          1</code></pre>
+<pre class="r"><code>anyNA(commodity_detail)</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>str(commodity_detail)</code></pre>
+<pre><code>## Classes 'tbl_df', 'tbl' and 'data.frame':    2452 obs. of  2 variables:
+##  $ commodity_transaction: Factor w/ 2452 levels &quot;Additives and Oxygenates - Exports&quot;,..: 832 719 720 737 744 766 758 759 718 702 ...
+##  $ occurences           : int  6601 5532 5523 5523 5523 5523 5521 5521 5499 5491 ...</code></pre>
+<pre class="r"><code>summary(commodity_detail)</code></pre>
+<pre><code>##                                             commodity_transaction
+##  Additives and Oxygenates - Exports                    :   1     
+##  Additives and Oxygenates - Imports                    :   1     
+##  Additives and Oxygenates - Production                 :   1     
+##  Additives and Oxygenates - Receipts from other sources:   1     
+##  Additives and Oxygenates - Stock changes              :   1     
+##  Additives and Oxygenates - Total energy supply        :   1     
+##  (Other)                                               :2446     
+##    occurences    
+##  Min.   :   1.0  
+##  1st Qu.:  23.0  
+##  Median :  99.0  
+##  Mean   : 485.1  
+##  3rd Qu.: 476.0  
+##  Max.   :6601.0  
+## </code></pre>
+<p>Year is pretty straightforward.</p>
+<pre class="r"><code>year_detail &lt;- raw_stats %&gt;% group_by(year) %&gt;% summarise(occurences = length(year)) %&gt;% arrange(desc(occurences))
+
+year_detail</code></pre>
+<pre><code>## # A tibble: 25 x 2
+##     year occurences
+##    &lt;int&gt;      &lt;int&gt;
+##  1  2014      56264
+##  2  2013      56109
+##  3  2012      55838
+##  4  2011      55214
+##  5  2010      54544
+##  6  2008      53852
+##  7  2009      53769
+##  8  2007      52248
+##  9  2006      49397
+## 10  2005      49203
+## # ... with 15 more rows</code></pre>
+<pre class="r"><code>anyNA(year_detail)</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>str(year_detail)</code></pre>
+<pre><code>## Classes 'tbl_df', 'tbl' and 'data.frame':    25 obs. of  2 variables:
+##  $ year      : int  2014 2013 2012 2011 2010 2008 2009 2007 2006 2005 ...
+##  $ occurences: int  56264 56109 55838 55214 54544 53852 53769 52248 49397 49203 ...</code></pre>
+<pre class="r"><code>summary(year_detail)</code></pre>
+<pre><code>##       year        occurences   
+##  Min.   :1990   Min.   :36280  
+##  1st Qu.:1996   1st Qu.:43550  
+##  Median :2002   Median :46520  
+##  Mean   :2002   Mean   :47579  
+##  3rd Qu.:2008   3rd Qu.:53769  
+##  Max.   :2014   Max.   :56264</code></pre>
+<p>Unit column:</p>
+<pre class="r"><code>unit_detail &lt;- raw_stats %&gt;% group_by(unit) %&gt;% summarise(occurences = length(unit)) %&gt;% arrange(desc(occurences))
+
+unit_detail</code></pre>
+<pre><code>## # A tibble: 6 x 2
+##   unit                    occurences
+##   &lt;fct&gt;                        &lt;int&gt;
+## 1 Metric tons,  thousand      759859
+## 2 Terajoules                  178937
+## 3 Kilowatt-hours, million     147741
+## 4 Cubic metres, thousand       52032
+## 5 Kilowatts,  thousand         50229
+## 6 Metric Tons                    684</code></pre>
+<pre class="r"><code>anyNA(unit_detail)</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>str(unit_detail)</code></pre>
+<pre><code>## Classes 'tbl_df', 'tbl' and 'data.frame':    6 obs. of  2 variables:
+##  $ unit      : Factor w/ 6 levels &quot;Cubic metres, thousand&quot;,..: 5 6 2 1 3 4
+##  $ occurences: int  759859 178937 147741 52032 50229 684</code></pre>
+<pre class="r"><code>summary(unit_detail)</code></pre>
+<pre><code>##                       unit     occurences    
+##  Cubic metres, thousand :1   Min.   :   684  
+##  Kilowatt-hours, million:1   1st Qu.: 50680  
+##  Kilowatts,  thousand   :1   Median : 99886  
+##  Metric Tons            :1   Mean   :198247  
+##  Metric tons,  thousand :1   3rd Qu.:171138  
+##  Terajoules             :1   Max.   :759859</code></pre>
+<p>Quantity column:</p>
+<pre class="r"><code>anyNA(raw_stats$quantity)</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>str(raw_stats$quantity)</code></pre>
+<pre><code>##  num [1:1189482] 5 17 0 0 35 25 22 45 1 7 ...</code></pre>
+<pre class="r"><code>summary(raw_stats$quantity)</code></pre>
+<pre><code>##       Min.    1st Qu.     Median       Mean    3rd Qu.       Max. 
+##    -864348         14        189     184265       2265 6680329000</code></pre>
+<p>We already know about quantity_footnotes so next up is the category column:</p>
+<pre class="r"><code>category_detail &lt;- raw_stats %&gt;% group_by(category) %&gt;% summarise(occurences = length(category)) %&gt;% arrange(desc(occurences))
+
+head(category_detail, n=10)</code></pre>
+<pre><code>## # A tibble: 10 x 2
+##    category                                                    occurences
+##    &lt;fct&gt;                                                            &lt;int&gt;
+##  1 total_electricity                                               133916
+##  2 gas_oil_diesel_oil                                               97645
+##  3 fuel_oil                                                         75132
+##  4 natural_gas_including_lng                                        64161
+##  5 liquified_petroleum_gas                                          62156
+##  6 motor_gasoline                                                   53198
+##  7 fuelwood                                                         52032
+##  8 electricity_net_installed_capacity_of_electric_power_plants      50229
+##  9 other_kerosene                                                   43466
+## 10 hard_coal                                                        42307</code></pre>
+<pre class="r"><code>tail(category_detail, n=10)</code></pre>
+<pre><code>## # A tibble: 10 x 2
+##    category                        occurences
+##    &lt;fct&gt;                                &lt;int&gt;
+##  1 gasoline_type_jet_fuel                1293
+##  2 falling_water                          962
+##  3 solar_electricity                      953
+##  4 nuclear_electricity                    756
+##  5 oil_shale_oil_sands                    756
+##  6 uranium                                684
+##  7 geothermal                             496
+##  8 gas_coke                               365
+##  9 other_coal_products                    105
+## 10 tide_wave_and_ocean_electricity         58</code></pre>
+<pre class="r"><code>anyNA(category_detail)</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>str(category_detail)</code></pre>
+<pre><code>## Classes 'tbl_df', 'tbl' and 'data.frame':    71 obs. of  2 variables:
+##  $ category  : Factor w/ 71 levels &quot;additives_and_oxygenates&quot;,..: 67 27 24 42 37 39 25 21 51 31 ...
+##  $ occurences: int  133916 97645 75132 64161 62156 53198 52032 50229 43466 42307 ...</code></pre>
+<pre class="r"><code>summary(category_detail)</code></pre>
+<pre><code>##                      category    occurences    
+##  additives_and_oxygenates: 1   Min.   :    58  
+##  animal_waste            : 1   1st Qu.:  2208  
+##  anthracite              : 1   Median :  6470  
+##  aviation_gasoline       : 1   Mean   : 16753  
+##  bagasse                 : 1   3rd Qu.: 20236  
+##  biodiesel               : 1   Max.   :133916  
+##  (Other)                 :65</code></pre>
+<p>We do some cleanup.</p>
+<pre class="r"><code>rm(category_detail)
+
+rm(commodity_detail)
+
+rm(country_detail)
+
+rm(unit_detail)
+
+rm(year_detail)</code></pre>
+<p>Lastly we drop the quantity footnotes column and use the raw statistics as a tibble dataframe going forward.</p>
+<pre class="r"><code>test_data &lt;- as_tibble(raw_stats)
+
+class(test_data)</code></pre>
+<pre><code>## [1] &quot;tbl_df&quot;     &quot;tbl&quot;        &quot;data.frame&quot;</code></pre>
+<pre class="r"><code>test_data &lt;- test_data %&gt;% select(-quantity_footnotes)</code></pre>
 </div>
 
 
