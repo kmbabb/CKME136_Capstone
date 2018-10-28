@@ -58,3 +58,115 @@ Dataset is 7 columns x 1,189,482 rows. Lots of N/A's in "quantity footnotes vari
 (sum(is.na(raw_stats$quantity_footnotes))/nrow(raw_stats))*100
 ```
 
+
+
+86% N/As! We will need to drop this column. For now, we need some descriptive statistics of the individual columns. First country_or_area
+```{r}
+country_detail <- raw_stats %>% group_by(country_or_area) %>% summarise(occurences = length(country_or_area)) %>% arrange(desc(occurences))
+
+head(country_detail, n=10)
+
+tail(country_detail, n=10)
+
+anyNA(country_detail)
+
+str(country_detail)
+
+summary(country_detail)
+```
+
+
+Commodity transaction stats:
+```{r}
+commodity_detail <- raw_stats %>% group_by(commodity_transaction) %>% summarise(occurences = length(commodity_transaction)) %>% arrange(desc(occurences))
+
+head(commodity_detail, n=10)
+
+tail(commodity_detail, n=10)
+
+anyNA(commodity_detail)
+
+str(commodity_detail)
+
+summary(commodity_detail)
+```
+
+
+Year is pretty straightforward.
+```{r}
+year_detail <- raw_stats %>% group_by(year) %>% summarise(occurences = length(year)) %>% arrange(desc(occurences))
+
+year_detail
+
+anyNA(year_detail)
+
+str(year_detail)
+
+summary(year_detail)
+```
+
+
+Unit column:
+```{r}
+unit_detail <- raw_stats %>% group_by(unit) %>% summarise(occurences = length(unit)) %>% arrange(desc(occurences))
+
+unit_detail
+
+anyNA(unit_detail)
+
+str(unit_detail)
+
+summary(unit_detail)
+```
+
+
+Quantity column:
+```{r}
+anyNA(raw_stats$quantity)
+
+str(raw_stats$quantity)
+
+summary(raw_stats$quantity)
+```
+
+
+We already know about quantity_footnotes so next up is the category column:
+```{r}
+category_detail <- raw_stats %>% group_by(category) %>% summarise(occurences = length(category)) %>% arrange(desc(occurences))
+
+head(category_detail, n=10)
+
+tail(category_detail, n=10)
+
+anyNA(category_detail)
+
+str(category_detail)
+
+summary(category_detail)
+
+```
+
+
+We do some cleanup.
+```{r}
+rm(category_detail)
+
+rm(commodity_detail)
+
+rm(country_detail)
+
+rm(unit_detail)
+
+rm(year_detail)
+```
+
+
+Lastly we drop the quantity footnotes column and use the raw statistics as a tibble dataframe going forward.
+```{r}
+test_data <- as_tibble(raw_stats)
+
+class(test_data)
+
+test_data <- test_data %>% select(-quantity_footnotes)
+```
+
