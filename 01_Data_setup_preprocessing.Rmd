@@ -19,7 +19,6 @@ When you click the **Knit** button a document will be generated that includes bo
 Loading of packages required for the data analysis
 ```{r packages, echo=FALSE}
 library("tidyverse")
-library("readr")
 ```
 
 
