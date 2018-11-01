@@ -1,0 +1,45 @@
+---
+title: "02_Data_Code"
+author: "Kevin Babb"
+date: "October 31, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## The packages "tidyverse" and "broom" should be installed at this stage.
+
+## We check our data
+```{r}
+class(test_data)
+head(test_data)
+```
+
+
+
+## Filter the categories of interest, beginning with 'Hard coal'
+```{r}
+hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% nest()
+
+head(hard_coal)
+
+# Check to see the structure of the 'data' tibble
+pluck(hard_coal, "data") %>% pluck(1) %>% head()
+```
+
+
+
+## We create new data columns using the mutate function and map: linear model, slope, and r_squared
+```{r}
+hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% nest() %>% mutate(model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(hard_coal)
+```
+
+
+
+
+
