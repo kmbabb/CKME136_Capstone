@@ -2,7 +2,10 @@
 title: "02_Data_Code"
 author: "Kevin Babb"
 date: "October 31, 2018"
-output: html_document
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -10,19 +13,31 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-## The packages "tidyverse" and "broom" should be installed at this stage.
+The packages "tidyverse" and "broom" should be installed at this stage.
+```{r packages, echo=FALSE}
+library("tidyverse")
+library("broom")
+```
 
-## We check our data
+
+And our data loaded as before.
+```{r}
+raw_stats <- read.csv("~/Documents/Class/CKME-136/Workshop/all_energy_statistics.csv")
+test_data <- as_tibble(raw_stats)
+test_data <- test_data %>% select(-quantity_footnotes)
+```
+
+
+We check our data:
 ```{r}
 class(test_data)
 head(test_data)
 ```
 
 
-
-## Filter the categories of interest, beginning with 'Hard coal'.
-## We drop columns we don't need, group the countries together, and sort the results in ascending order by country followed by year.
-## Lastly we nest the result by the grouped country.
+We filter the categories of interest, beginning with 'Hard coal'.
+We drop columns we don't need, group the countries together, and sort the results in ascending order by country followed by year.
+Lastly we nest the result by the grouped country.
 ```{r}
 hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
 
@@ -34,25 +49,25 @@ pluck(hard_coal, "data") %>% pluck(1) %>% head()
 
 
 
-## We create new data columns using the 'mutate' and 'map' commands. From the data we extract the following information: 
-## initial_year: (first recorded year of transforming this resource), initial_transformation (recorded units of transformation in first recorded year)
-## linear model: (derived linear model of transformation units as described by year)
-## slope: (slope of linear model: +ve/-ve)
-## r_squared: (statistical measure of how close the model data is to the fitted regression line)
+We create new data columns using the 'mutate' and 'map' commands. From the data we extract the following information: 
+- initial_year: (first recorded year of transforming this resource), initial_transformation (recorded units of transformation in first recorded year)
+- linear model: (derived linear model of transformation units as described by year)
+- slope: (slope of linear model: +ve/-ve)
+- r_squared: (statistical measure of how close the model data is to the fitted regression line)
 ```{r}
 hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
 
 head(hard_coal)
 ```
 
-## We can now begin our analysis on this data. We obtain the a list of the top 20 countries that began with the highest transformtion of coal into electricity.
+We can now begin our analysis on this data. We obtain the a list of the top 20 countries that began with the highest transformtion of coal into electricity.
 ```{r}
 hard_coal %>% arrange(desc(initial_transformation)) %>% head(20)
 ```
 
 
-## At this point we can generate a chart to see how these countries hard coal transformation into electricity change over time.
+At this point we can generate a chart to see how these countries hard coal transformation into electricity change over time.
 ```{r}
 hard_coal %>% arrange(desc(initial_transformation)) %>% head(20) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area))
-# We may need to tease this our or do a logarithmic chart to better represent this data.
+# We may need to tease this out or do a logarithmic chart to better represent this data.
 ```
