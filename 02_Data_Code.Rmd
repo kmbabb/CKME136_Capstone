@@ -15,36 +15,47 @@ knitr::opts_chunk$set(echo = TRUE)
 
 The packages "tidyverse" and "broom" should be installed at this stage.
 ```{r packages, echo=FALSE}
+
 library("tidyverse")
 library("broom")
+
 ```
 
 
 And our data loaded as before.
 ```{r}
+
 raw_stats <- read.csv("~/Documents/Class/CKME-136/Workshop/all_energy_statistics.csv")
 test_data <- as_tibble(raw_stats)
 test_data <- test_data %>% select(-quantity_footnotes)
+
 ```
 
 
 We check our data:
 ```{r}
+
 class(test_data)
 head(test_data)
+
 ```
 
+
+Part I: Hard Coal
+--------------------
 
 We filter the categories of interest, beginning with 'Hard coal'.
 We drop columns we don't need, group the countries together, and sort the results in ascending order by country followed by year.
 Lastly we nest the result by the grouped country.
 ```{r}
+
 hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
 
 head(hard_coal)
 
 # Check to see the structure of the 'data' tibble - say Afghanistan
 pluck(hard_coal, "data") %>% pluck(1) %>% head()
+
 ```
 
 
@@ -55,19 +66,134 @@ We create new data columns using the 'mutate' and 'map' commands. From the data 
 - slope: (slope of linear model: +ve/-ve)
 - r_squared: (statistical measure of how close the model data is to the fitted regression line)
 ```{r}
+
 hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
 
 head(hard_coal)
+
 ```
 
 We can now begin our analysis on this data. We obtain the a list of the top 20 countries that began with the highest transformtion of coal into electricity.
 ```{r}
+
 hard_coal %>% arrange(desc(initial_transformation)) %>% head(20)
+
 ```
 
 
 At this point we can generate a chart to see how these countries hard coal transformation into electricity change over time.
 ```{r}
+
 hard_coal %>% arrange(desc(initial_transformation)) %>% head(20) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area))
+
 # We may need to tease this out or do a logarithmic chart to better represent this data.
+
 ```
+
+
+
+Part II: Brown Coal
+----------------------
+
+Same code as before but different variable.
+```{r}
+
+brown_coal <- test_data %>% filter(commodity_transaction == "Brown coal - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(brown_coal)
+
+pluck(brown_coal, "data") %>% pluck(1) %>% head()
+
+brown_coal <- test_data %>% filter(commodity_transaction == "Brown coal - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(brown_coal)
+
+```
+
+
+Analysis and charts
+```{r}
+brown_coal %>% arrange(desc(initial_transformation)) %>% head(20)
+
+brown_coal %>% arrange(desc(initial_transformation)) %>% head(20) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area))
+```
+
+
+
+Part III: Fuel Oil
+---------------------
+
+```{r}
+
+fuel_oil <- test_data %>% filter(commodity_transaction == "Fuel oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(fuel_oil)
+
+pluck(fuel_oil, "data") %>% pluck(1) %>% head()
+
+fuel_oil <- test_data %>% filter(commodity_transaction == "Fuel oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(fuel_oil)
+
+```
+
+
+Analysis and charts
+```{r}
+fuel_oil %>% arrange(desc(initial_transformation)) %>% head(20)
+
+fuel_oil %>% arrange(desc(initial_transformation)) %>% head(20) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area))
+```
+
+
+Part IV: Gas Oil/Diesel Oil
+-------------------------------
+```{r}
+
+gasdiesel_oil <- test_data %>% filter(commodity_transaction == "Gas Oil/ Diesel Oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(gasdiesel_oil)
+
+pluck(gasdiesel_oil, "data") %>% pluck(1) %>% head()
+
+gasdiesel_oil <- test_data %>% filter(commodity_transaction == "Gas Oil/ Diesel Oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(gasdiesel_oil)
+
+```
+
+
+Analysis and charts
+```{r}
+gasdiesel_oil %>% arrange(desc(initial_transformation)) %>% head(20)
+
+gasdiesel_oil %>% arrange(desc(initial_transformation)) %>% head(20) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area))
+```
+
+
+
+Part V: Natural Gas (including LNG)
+---------------------------------------
+```{r}
+
+natural_gas <- test_data %>% filter(commodity_transaction == "Natural gas (including LNG) - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(natural_gas)
+
+pluck(natural_gas, "data") %>% pluck(1) %>% head()
+
+natural_gas <- test_data %>% filter(commodity_transaction == "Natural gas (including LNG) - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(natural_gas)
+
+```
+
+
+Analysis and charts
+```{r}
+natural_gas %>% arrange(desc(initial_transformation)) %>% head(20)
+
+natural_gas %>% arrange(desc(initial_transformation)) %>% head(20) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area))
+```
+
+
