@@ -1,0 +1,1801 @@
+---
+title: "R Data Code"
+author: "Kevin Babb"
+date: "October 28, 2018"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
+
+
+Section A: Data Examination
+#############################
+
+Loading of packages required for the data analysis
+```{r packages, echo=FALSE}
+library("tidyverse")
+library("broom")
+library("scales")
+```
+
+
+Loading of data into R
+```{r raw_statistics}
+raw_stats <- read.csv("~/Documents/Class/CKME-136/Workshop/CKME136_Capstone/Data/all_energy_statistics.csv")
+```
+
+
+We now look at the data loaded
+```{r data_examination}
+head(raw_stats)
+```
+
+
+Looking further:
+```{r}
+summary(raw_stats)
+
+str(raw_stats)
+
+anyNA(raw_stats$quantity_footnotes)
+
+sum(is.na(raw_stats$quantity_footnotes))
+
+ncol(raw_stats)
+
+nrow(raw_stats)
+```
+
+
+
+Dataset is 7 columns x 1,189,482 rows. Lots of N/A's in "quantity footnotes variable". Check to see how many.
+```{r}
+(sum(is.na(raw_stats$quantity_footnotes))/nrow(raw_stats))*100
+```
+
+
+
+86% N/As! We will need to drop this column. For now, we need some descriptive statistics of the individual columns. First country_or_area
+```{r}
+country_detail <- raw_stats %>% group_by(country_or_area) %>% summarise(occurences = length(country_or_area)) %>% arrange(desc(occurences))
+
+head(country_detail, n=10)
+
+tail(country_detail, n=10)
+
+anyNA(country_detail)
+
+str(country_detail)
+
+summary(country_detail)
+```
+
+
+Commodity transaction stats:
+```{r}
+commodity_detail <- raw_stats %>% group_by(commodity_transaction) %>% summarise(occurences = length(commodity_transaction)) %>% arrange(desc(occurences))
+
+head(commodity_detail, n=10)
+
+tail(commodity_detail, n=10)
+
+anyNA(commodity_detail)
+
+str(commodity_detail)
+
+summary(commodity_detail)
+```
+
+
+Year is pretty straightforward.
+```{r}
+year_detail <- raw_stats %>% group_by(year) %>% summarise(occurences = length(year)) %>% arrange(desc(occurences))
+
+year_detail
+
+anyNA(year_detail)
+
+str(year_detail)
+
+summary(year_detail)
+```
+
+
+Unit column:
+```{r}
+unit_detail <- raw_stats %>% group_by(unit) %>% summarise(occurences = length(unit)) %>% arrange(desc(occurences))
+
+unit_detail
+
+anyNA(unit_detail)
+
+str(unit_detail)
+
+summary(unit_detail)
+```
+
+
+Quantity column:
+```{r}
+anyNA(raw_stats$quantity)
+
+str(raw_stats$quantity)
+
+summary(raw_stats$quantity)
+```
+
+
+We already know about quantity_footnotes so next up is the category column:
+```{r}
+category_detail <- raw_stats %>% group_by(category) %>% summarise(occurences = length(category)) %>% arrange(desc(occurences))
+
+head(category_detail, n=10)
+
+tail(category_detail, n=10)
+
+anyNA(category_detail)
+
+str(category_detail)
+
+summary(category_detail)
+```
+
+
+We do some cleanup.
+```{r}
+rm(category_detail)
+
+rm(commodity_detail)
+
+rm(country_detail)
+
+rm(unit_detail)
+
+rm(year_detail)
+```
+
+
+Lastly we drop the quantity footnotes column and use the raw statistics as a tibble dataframe going forward.
+```{r}
+test_data <- as_tibble(raw_stats)
+
+class(test_data)
+
+test_data <- test_data %>% select(-quantity_footnotes)
+```
+
+Section B: Data Analysis
+##############################
+Part 1: Hard Coal
+--------------------
+
+We filter the categories of interest, beginning with 'Hard coal'.
+We drop columns we don't need, group the countries together, and sort the results in ascending order by country followed by year.
+Lastly we nest the result by the grouped country.
+```{r}
+hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(hard_coal)
+
+# Check to see the structure of the 'data' tibble - say Afghanistan
+pluck(hard_coal, "data") %>% pluck(1) %>% head()
+```
+
+
+
+We create new data columns using the 'mutate' and 'map' commands. From the data we extract the following information: 
+- initial_year: (first recorded year of transforming this resource), initial_transformation (recorded units of transformation in first recorded year)
+- linear model: (derived linear model of transformation units as described by year)
+- slope: (slope of linear model: +ve/-ve)
+- r_squared: (statistical measure of how close the model data is to the fitted regression line)
+```{r}
+hard_coal <- test_data %>% filter(commodity_transaction == "Hard coal - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(hard_coal)
+
+# Descriptive statistics on our output data
+summary(hard_coal$initial_year)
+summary(hard_coal$slope)
+summary(hard_coal$r_squared)
+```
+
+We can now begin our analysis on this data. We obtain the a list of the top 10 countries that began with the highest transformtion of coal into electricity.
+```{r}
+hard_coal %>% arrange(desc(initial_transformation)) %>% head(10)
+```
+
+
+At this point we can generate a chart to see how these countries hard coal transformation into electricity change over time.
+```{r}
+hard_coal %>% arrange(desc(initial_transformation)) %>% head(10) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area)) +labs(y= "Metric tons (thousand)", x = "Year") + ggtitle("Hard Coal Transformation (1990 - 2015)")+ labs(colour = "Country")
+```
+
+
+
+Part 2: Brown Coal
+----------------------
+
+Same code as before but different variable.
+```{r}
+brown_coal <- test_data %>% filter(commodity_transaction == "Brown coal - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(brown_coal)
+
+pluck(brown_coal, "data") %>% pluck(1) %>% head()
+
+brown_coal <- test_data %>% filter(commodity_transaction == "Brown coal - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(brown_coal)
+
+# Descriptive statistics
+summary(brown_coal$initial_year)
+summary(brown_coal$slope)
+summary(brown_coal$r_squared)
+```
+
+
+Analysis and charts
+```{r}
+brown_coal %>% arrange(desc(initial_transformation)) %>% head(10)
+
+brown_coal %>% arrange(desc(initial_transformation)) %>% head(10) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area)) + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Year") + ggtitle("Brown Coal Transformation (1990 - 2015)")+ labs(colour = "Country")
+```
+
+
+
+Part 3: Fuel Oil
+---------------------
+
+```{r}
+fuel_oil <- test_data %>% filter(commodity_transaction == "Fuel oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(fuel_oil)
+
+pluck(fuel_oil, "data") %>% pluck(1) %>% head()
+
+fuel_oil <- test_data %>% filter(commodity_transaction == "Fuel oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(fuel_oil)
+
+# Descriptive statistics on our output data
+summary(fuel_oil$initial_year)
+summary(fuel_oil$slope)
+summary(fuel_oil$r_squared)
+```
+
+
+Analysis and charts
+```{r}
+fuel_oil %>% arrange(desc(initial_transformation)) %>% head(10)
+
+fuel_oil %>% arrange(desc(initial_transformation)) %>% head(10) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area)) + scale_y_continuous(name="Metric tons (thousand)", labels = comma) + scale_x_continuous(name="Year") + ggtitle("Fuel Oil Transformation (1990 - 2015)")+ labs(colour = "Country")
+```
+
+
+Part 4: Gas Oil/Diesel Oil
+-------------------------------
+```{r}
+gasdiesel_oil <- test_data %>% filter(commodity_transaction == "Gas Oil/ Diesel Oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(gasdiesel_oil)
+
+pluck(gasdiesel_oil, "data") %>% pluck(1) %>% head()
+
+gasdiesel_oil <- test_data %>% filter(commodity_transaction == "Gas Oil/ Diesel Oil - Transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(gasdiesel_oil)
+
+# Descriptive statistics
+summary(gasdiesel_oil$initial_year)
+summary(gasdiesel_oil$slope)
+summary(gasdiesel_oil$r_squared)
+```
+
+
+Analysis and charts
+```{r}
+gasdiesel_oil %>% arrange(desc(initial_transformation)) %>% head(10)
+
+gasdiesel_oil %>% arrange(desc(initial_transformation)) %>% head(10) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area)) + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Year") + ggtitle("Gas/Diesel Oil Transformation (1990 - 2015)")+ labs(colour = "Country")
+```
+
+
+
+Part 5: Natural Gas (including LNG)
+---------------------------------------
+```{r}
+natural_gas <- test_data %>% filter(commodity_transaction == "Natural gas (including LNG) - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+head(natural_gas)
+
+pluck(natural_gas, "data") %>% pluck(1) %>% head()
+
+natural_gas <- test_data %>% filter(commodity_transaction == "Natural gas (including LNG) - transformation in electricity, CHP and heat plants") %>% select(-commodity_transaction, -category) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest() %>% mutate(initial_year = map_int((map(data, "year")), 1), initial_transformation = map_dbl((map(data, "quantity")), 1), model = map(data, ~lm(quantity ~ year, data =  .)), slope = map_dbl(model, ~pluck(coef(.), "year")), r_squared = map_dbl(model, ~pluck(glance(.), "r.squared")) )
+
+head(natural_gas)
+
+# Descriptive statistics on our output data
+summary(natural_gas$initial_year)
+summary(natural_gas$slope)
+summary(natural_gas$r_squared)
+```
+
+
+Analysis and charts
+```{r}
+natural_gas %>% arrange(desc(initial_transformation)) %>% head(10)
+
+natural_gas %>% arrange(desc(initial_transformation)) %>% head(10) %>% unnest(data) %>% ggplot(country_or_area, mapping = aes(x = year, y = quantity)) + geom_line(mapping = aes(color = country_or_area)) + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Year") + ggtitle("Natural Gas Transformation (1990 - 2015)")+ labs(colour = "Country")
+```
+
+
+Section 3: Further Analysis
+###################################
+
+We load additional data for further investigations.
+```{r}
+##################################
+# First we do population data:
+##################################
+population <- read.csv("~/Documents/Class/CKME-136/Workshop/CKME136_Capstone/Data/population-by-country-gapminder+un.csv")
+
+head(population)
+
+tail(population)
+
+anyNA(population)
+
+summary(population)
+
+colnames(population)
+
+# One problem with this data is that we need to rename "Russia" to "Russian Federation" for consistency. Also with "Iran" to "Iran (Islamic Rep. of)"
+length(grep("\\<Russia\\>", population$Entity))
+length(grep("\\<Iran\\>", population$Entity))
+
+# 69 Occurrences of Russia in this data - we need to rename these
+population$Entity <- as.character(population$Entity)
+population$Entity[population$Entity == "Russia"] <- "Russian Federation"
+population$Entity[population$Entity == "Iran"] <- "Iran (Islamic Rep. of)"
+population$Entity <- as.factor(population$Entity)
+
+# We also need to rename the column headings to that of our prepared data for merging.
+
+names(population) <- c("country_or_area", "code", "year", "population")
+
+#####################################
+# Similarly, we do GDP data
+#####################################
+gdp <- read.csv("~/Documents/Class/CKME-136/Workshop/CKME136_Capstone/Data/real-gdp-per-capita-PWT.csv")
+
+head(gdp)
+
+tail(gdp)
+
+anyNA(gdp)
+
+summary(gdp)
+
+colnames(gdp)
+
+# We need to do the same renaming with this data
+length(grep("\\<Russia\\>", gdp$Entity))
+length(grep("\\<Iran\\>", gdp$Entity))
+
+# Renaming
+gdp$Entity <- as.character(gdp$Entity)
+gdp$Entity[gdp$Entity == "Russia"] <- "Russian Federation"
+gdp$Entity[gdp$Entity == "Iran"] <- "Iran (Islamic Rep. of)"
+gdp$Entity <- as.factor(gdp$Entity)
+
+# Now the column headings for merging.
+names(gdp) <- c("country_or_area", "code", "year", "gdp_per_capita")
+```
+
+
+We prepare the tables of top 10 of all the energy transformations in our five categories to merge.
+```{r}
+hard_coal_10 <- hard_coal %>% arrange(desc(initial_transformation)) %>% head(10) %>% select(-c(initial_year, initial_transformation, model, slope, r_squared)) %>% unnest(data)
+
+brown_coal_10 <- brown_coal %>% arrange(desc(initial_transformation)) %>% head(10) %>% select(-c(initial_year, initial_transformation, model, slope, r_squared)) %>% unnest(data)
+
+fuel_oil_10 <- fuel_oil %>% arrange(desc(initial_transformation)) %>% head(10) %>% select(-c(initial_year, initial_transformation, model, slope, r_squared)) %>% unnest(data)
+
+gasdiesel_10 <- gasdiesel_oil %>% arrange(desc(initial_transformation)) %>% head(10) %>% select(-c(initial_year, initial_transformation, model, slope, r_squared)) %>% unnest(data)
+
+natural_gas_10 <- natural_gas %>% arrange(desc(initial_transformation)) %>% head(10) %>% select(-c(initial_year, initial_transformation, model, slope, r_squared)) %>% unnest(data)
+```
+
+
+Next we begin our joins on our energy transformations against population, GDP per capita, and average temperature
+```{r}
+## Population first
+hard_coal_10_pop <- inner_join(hard_coal_10, population, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+brown_coal_10_pop <- inner_join(brown_coal_10, population, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+fuel_oil_10_pop <- inner_join(fuel_oil_10, population, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+gasdiesel_10_pop <- inner_join(gasdiesel_10, population, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+natural_gas_10_pop <- inner_join(natural_gas_10, population, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% arrange(country_or_area, year) %>% nest()
+
+
+## GDP Per Capita next
+hard_coal_10_gdp <- inner_join(hard_coal_10, gdp, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+brown_coal_10_gdp <- inner_join(brown_coal_10, gdp, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+fuel_oil_10_gdp <- inner_join(fuel_oil_10, gdp, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+gasdiesel_10_gdp <- inner_join(gasdiesel_10, gdp, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+natural_gas_10_gdp <- inner_join(natural_gas_10, gdp, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+```
+
+
+Part 1: Energy Transformations against Population
+```{r}
+# We need to consider each of the individual countries in our energy transformation groupings and perform correlation analyses to determine if there is an associative link between transformation and population.
+
+# First we load the ggpubr package.
+library("ggpubr")
+```
+
+
+
+# (i) Hard Coal
+```{r}
+# Now we look at our hard coal data more closely
+
+
+hard_coal_10_pop
+
+# These are the 10 countries that we need to investigate.
+
+# 1: United States
+hard_coal_10_pop %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("United States - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_01 <- hard_coal_10_pop %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(hc_01$population, hc_01$quantity, method = "pearson")
+
+
+# 2: China
+hard_coal_10_pop %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("China - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_02 <- hard_coal_10_pop %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(hc_02$population, hc_02$quantity, method = "pearson")
+
+
+# 3: Russian Federation
+hard_coal_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Russian Federation Hard - Coal Transformation vs Population (1990 - 2015)") 
+
+hc_03 <- hard_coal_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(hc_03$population, hc_03$quantity, method = "pearson")
+
+
+# 4: India
+hard_coal_10_pop %>% filter(country_or_area == "India") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("India - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_04 <- hard_coal_10_pop %>% filter(country_or_area == "India") %>% unnest(data)
+
+cor.test(hc_04$population, hc_04$quantity, method = "pearson")
+
+
+# 5: United Kingdom
+hard_coal_10_pop %>% filter(country_or_area == "United Kingdom") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("United Kingdom - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_05 <- hard_coal_10_pop %>% filter(country_or_area == "United Kingdom") %>% unnest(data)
+
+cor.test(hc_05$population, hc_05$quantity, method = "pearson")
+
+
+# 6: Poland
+hard_coal_10_pop %>% filter(country_or_area == "Poland") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Poland - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_06 <- hard_coal_10_pop %>% filter(country_or_area == "Poland") %>% unnest(data)
+
+cor.test(hc_06$population, hc_06$quantity, method = "pearson")
+
+
+# 7: South Africa
+hard_coal_10_pop %>% filter(country_or_area == "South Africa") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("South Africa - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_07 <- hard_coal_10_pop %>% filter(country_or_area == "South Africa") %>% unnest(data)
+
+cor.test(hc_07$population, hc_07$quantity, method = "pearson")
+
+
+# 8: Germany
+hard_coal_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Germany - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_08 <- hard_coal_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(hc_08$population, hc_08$quantity, method = "pearson")
+
+
+# 9: Kazakhstan
+hard_coal_10_pop %>% filter(country_or_area == "Kazakhstan") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Kazakhstan - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_09 <- hard_coal_10_pop %>% filter(country_or_area == "Kazakhstan") %>% unnest(data)
+
+cor.test(hc_09$population, hc_09$quantity, method = "pearson")
+
+
+# 10: Japan
+hard_coal_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Japan - Hard Coal Transformation vs Population (1990 - 2015)") 
+
+hc_10 <- hard_coal_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(hc_10$population, hc_10$quantity, method = "pearson")
+```
+
+
+
+# (ii) Brown Coal
+```{r}
+# Now we look at brown coal:
+
+brown_coal_10_pop
+
+# These are the 6 countries that we need to investigate.
+
+# 1: United States
+brown_coal_10_pop %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("United States - Brown Coal Transformation vs Population (1990 - 2015)")
+
+bc_01 <- brown_coal_10_pop %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(bc_01$population, bc_01$quantity, method = "pearson")
+
+
+# 2: Germany
+brown_coal_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Germany - Brown Coal Transformation vs Population (1990 - 2015)")
+
+bc_02 <- brown_coal_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(bc_02$population, bc_02$quantity, method = "pearson")
+
+
+# 3: Russian Federation
+brown_coal_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Russian Federation - Brown Coal Transformation vs Population (1990 - 2015)")
+
+bc_03 <- brown_coal_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(bc_03$population, bc_03$quantity, method = "pearson")
+
+
+
+# 4: Poland
+brown_coal_10_pop %>% filter(country_or_area == "Poland") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Poland - Brown Coal Transformation vs Population (1990 - 2015)")
+
+bc_04 <- brown_coal_10_pop %>% filter(country_or_area == "Poland") %>% unnest(data)
+
+cor.test(bc_04$population, bc_04$quantity, method = "pearson")
+
+
+# 5: Australia
+brown_coal_10_pop %>% filter(country_or_area == "Australia") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Australia - Brown Coal Transformation vs Population (1990 - 2015)")
+
+bc_05 <- brown_coal_10_pop %>% filter(country_or_area == "Australia") %>% unnest(data)
+
+cor.test(bc_05$population, bc_05$quantity, method = "pearson")
+
+
+
+# 6: Greece
+brown_coal_10_pop %>% filter(country_or_area == "Greece") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Greece - Brown Coal Transformation vs Population (1990 - 2015)")
+
+bc_06 <- brown_coal_10_pop %>% filter(country_or_area == "Greece") %>% unnest(data)
+
+cor.test(bc_06$population, bc_06$quantity, method = "pearson")
+```
+
+
+
+
+# (iii) Fuel Oil:
+```{r}
+# Now we look at fuel oil:
+
+fuel_oil_10_pop
+
+# These are the 10 countries that we need to investigate.
+
+# 1: Russian Federation
+fuel_oil_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Russian Federation - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_01 <- fuel_oil_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(fo_01$population, fo_01$quantity, method = "pearson")
+
+
+# 2: Japan
+fuel_oil_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Japan - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_02 <- fuel_oil_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(fo_02$population, fo_02$quantity, method = "pearson")
+
+
+# 3: United States
+fuel_oil_10_pop %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("United States - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_03 <- fuel_oil_10_pop %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(fo_03$population, fo_03$quantity, method = "pearson")
+
+
+# 4: Italy
+fuel_oil_10_pop %>% filter(country_or_area == "Italy") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Italy - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_04 <- fuel_oil_10_pop %>% filter(country_or_area == "Italy") %>% unnest(data)
+
+cor.test(fo_04$population, fo_04$quantity, method = "pearson")
+
+
+# 5: Mexico
+fuel_oil_10_pop %>% filter(country_or_area == "Mexico") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Mexico - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_05 <- fuel_oil_10_pop %>% filter(country_or_area == "Mexico") %>% unnest(data)
+
+cor.test(fo_05$population, fo_05$quantity, method = "pearson")
+
+
+# 6: China
+fuel_oil_10_pop %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("China - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_06 <- fuel_oil_10_pop %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(fo_06$population, fo_06$quantity, method = "pearson")
+
+
+# 7: Belarus
+fuel_oil_10_pop %>% filter(country_or_area == "Belarus") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Belarus - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_07 <- fuel_oil_10_pop %>% filter(country_or_area == "Belarus") %>% unnest(data)
+
+cor.test(fo_07$population, fo_07$quantity, method = "pearson")
+
+
+# 8: United Kingdom
+fuel_oil_10_pop %>% filter(country_or_area == "United Kingdom") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("United Kingdom - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_08 <- fuel_oil_10_pop %>% filter(country_or_area == "United Kingdom") %>% unnest(data)
+
+cor.test(fo_08$population, fo_08$quantity, method = "pearson")
+
+
+# 9: Romania
+fuel_oil_10_pop %>% filter(country_or_area == "Romania") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Romania - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_09 <- fuel_oil_10_pop %>% filter(country_or_area == "Romania") %>% unnest(data)
+
+cor.test(fo_09$population, fo_09$quantity, method = "pearson")
+
+
+# 10: Ukraine
+fuel_oil_10_pop %>% filter(country_or_area == "Ukraine") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Ukraine - Fuel Oil Transformation vs Population (1990 - 2015)")
+
+fo_10 <- fuel_oil_10_pop %>% filter(country_or_area == "Ukraine") %>% unnest(data)
+
+cor.test(fo_10$population, fo_10$quantity, method = "pearson")
+```
+
+
+
+
+# (iv) Gas/Diesel Oil:
+```{r}
+# Now we look at gas/diesel oil:
+
+gasdiesel_10_pop
+
+# Once again 10 countries:
+
+# 1: Iraq
+gasdiesel_10_pop %>% filter(country_or_area == "Iraq") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Iraq - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_01 <- gasdiesel_10_pop %>% filter(country_or_area == "Iraq") %>% unnest(data)
+
+cor.test(gd_01$population, gd_01$quantity, method = "pearson")
+
+
+# 2: Saudi Arabia
+gasdiesel_10_pop %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Saudi Arabia - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_02 <- gasdiesel_10_pop %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data)
+
+cor.test(gd_02$population, gd_02$quantity, method = "pearson")
+
+
+# 3: Indonesia
+gasdiesel_10_pop %>% filter(country_or_area == "Indonesia") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Indonesia - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_03 <- gasdiesel_10_pop %>% filter(country_or_area == "Iraq") %>% unnest(data)
+
+cor.test(gd_03$population, gd_03$quantity, method = "pearson")
+
+
+# 4: United States
+gasdiesel_10_pop %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("United States - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_04 <- gasdiesel_10_pop %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(gd_04$population, gd_04$quantity, method = "pearson")
+
+
+# 5: Iran (Islamic Rep. of)
+gasdiesel_10_pop %>% filter(country_or_area == "Iran (Islamic Rep. of)") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Iran (Islamic Rep. of) - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_05 <- gasdiesel_10_pop %>% filter(country_or_area == "Iran (Islamic Rep. of)") %>% unnest(data)
+
+cor.test(gd_05$population, gd_05$quantity, method = "pearson")
+
+
+# 6: Russian Federation
+gasdiesel_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Russian Federation - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_06 <- gasdiesel_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(gd_06$population, gd_06$quantity, method = "pearson")
+
+
+# 7: China
+gasdiesel_10_pop %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("China - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_07 <- gasdiesel_10_pop %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(gd_07$population, gd_07$quantity, method = "pearson")
+
+
+# 8: Germany
+gasdiesel_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Germany - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_08 <- gasdiesel_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(gd_08$population, gd_08$quantity, method = "pearson")
+
+
+# 9: Japan
+gasdiesel_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Japan - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_09 <- gasdiesel_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(gd_09$population, gd_09$quantity, method = "pearson")
+
+
+# 10: Libya
+gasdiesel_10_pop %>% filter(country_or_area == "Libya") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Libya - Gas/Diesel Oil Transformation vs Population (1990 - 2015)") 
+
+gd_10 <- gasdiesel_10_pop %>% filter(country_or_area == "Libya") %>% unnest(data)
+
+cor.test(gd_10$population, gd_10$quantity, method = "pearson")
+```
+
+
+
+
+(v) Natural Gas:
+```{r}
+# Lastly there is Natural Gas:
+
+natural_gas_10_pop
+
+# There are 9 countries:
+
+# 1: Belarus
+natural_gas_10_pop %>% filter(country_or_area == "Belarus") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Belarus - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_01 <- natural_gas_10_pop %>% filter(country_or_area == "Belarus") %>% unnest(data)
+
+cor.test(ng_01$population, ng_01$quantity, method = "pearson")
+
+
+# 2: Germany
+natural_gas_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Germany - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_02 <- natural_gas_10_pop %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(ng_02$population, ng_02$quantity, method = "pearson")
+
+
+# 3: Japan
+natural_gas_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Japan - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_03 <- natural_gas_10_pop %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(ng_03$population, ng_03$quantity, method = "pearson")
+
+
+# 4: Romania
+natural_gas_10_pop %>% filter(country_or_area == "Romania") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Romania - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_04 <- natural_gas_10_pop %>% filter(country_or_area == "Romania") %>% unnest(data)
+
+cor.test(ng_04$population, ng_04$quantity, method = "pearson")
+
+
+# 5: Russian Federation
+natural_gas_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Russian Federation - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_05 <- natural_gas_10_pop %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(ng_05$population, ng_05$quantity, method = "pearson")
+
+
+# 6: Saudi Arabia
+natural_gas_10_pop %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Saudi Arabia - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_06 <- natural_gas_10_pop %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data)
+
+cor.test(ng_06$population, ng_06$quantity, method = "pearson")
+
+
+# 7: Ukraine
+natural_gas_10_pop %>% filter(country_or_area == "Ukraine") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Ukraine - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_07 <- natural_gas_10_pop %>% filter(country_or_area == "Ukraine") %>% unnest(data)
+
+cor.test(ng_07$population, ng_07$quantity, method = "pearson")
+
+
+# 8: United States
+natural_gas_10_pop %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("United States - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_08 <- natural_gas_10_pop %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(ng_08$population, ng_08$quantity, method = "pearson")
+
+
+# 9: Uzbekistan
+natural_gas_10_pop %>% filter(country_or_area == "Uzbekistan") %>% unnest(data) %>% ggscatter(x = "population", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Population", labels = comma)+ ggtitle("Uzbekistan - Natural Gas Transformation vs Population (1990 - 2015)") 
+
+ng_09 <- natural_gas_10_pop %>% filter(country_or_area == "Uzbekistan") %>% unnest(data)
+
+cor.test(ng_09$population, ng_09$quantity, method = "pearson")
+```
+
+
+
+Part 2: Energy Transformations against GDP
+# (i) Hard Coal
+```{r}
+# Now we look at our hard coal data more closely
+
+hard_coal_10_gdp
+
+# These are the 10 countries that we need to investigate.
+
+# 1: United States
+hard_coal_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("United States - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_01 <- hard_coal_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(ghc_01$gdp_per_capita, ghc_01$quantity, method = "pearson")
+
+
+# 2: China
+hard_coal_10_gdp %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("China - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_02 <- hard_coal_10_gdp %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(ghc_02$gdp_per_capita, ghc_02$quantity, method = "pearson")
+
+
+# 3: Russian Federation
+hard_coal_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Russian Federation - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_03 <- hard_coal_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(ghc_03$gdp_per_capita, ghc_03$quantity, method = "pearson")
+
+
+# 4: India
+hard_coal_10_gdp %>% filter(country_or_area == "India") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("India - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_04 <- hard_coal_10_gdp %>% filter(country_or_area == "India") %>% unnest(data)
+
+cor.test(ghc_04$gdp_per_capita, ghc_04$quantity, method = "pearson")
+
+
+# 5: United Kingdom
+hard_coal_10_gdp %>% filter(country_or_area == "United Kingdom") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("United Kingdom - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_05 <- hard_coal_10_gdp %>% filter(country_or_area == "United Kingdom") %>% unnest(data)
+
+cor.test(ghc_05$gdp_per_capita, ghc_05$quantity, method = "pearson")
+
+
+# 6: Poland
+hard_coal_10_gdp %>% filter(country_or_area == "Poland") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Poland - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_06 <- hard_coal_10_gdp %>% filter(country_or_area == "Poland") %>% unnest(data)
+
+cor.test(ghc_06$gdp_per_capita, ghc_06$quantity, method = "pearson")
+
+
+# 7: South Africa
+hard_coal_10_gdp %>% filter(country_or_area == "South Africa") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("South Africa - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_07 <- hard_coal_10_gdp %>% filter(country_or_area == "South Africa") %>% unnest(data)
+
+cor.test(ghc_07$gdp_per_capita, ghc_07$quantity, method = "pearson")
+
+
+# 8: Germany
+hard_coal_10_gdp %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Germany - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_08 <- hard_coal_10_gdp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(ghc_08$gdp_per_capita, ghc_08$quantity, method = "pearson")
+
+
+# 9: Kazakhstan
+hard_coal_10_gdp %>% filter(country_or_area == "Kazakhstan") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Kazakhstan - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_09 <- hard_coal_10_gdp %>% filter(country_or_area == "Kazakhstan") %>% unnest(data)
+
+cor.test(ghc_09$gdp_per_capita, ghc_09$quantity, method = "pearson")
+
+
+# 10: Japan
+hard_coal_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Japan - Hard Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+ghc_10 <- hard_coal_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(ghc_10$gdp_per_capita, ghc_10$quantity, method = "pearson")
+```
+
+
+
+# (ii) Brown Coal
+```{r}
+# Now we look at brown coal:
+
+brown_coal_10_gdp
+
+# These are the 6 countries that we need to investigate.
+
+# 1: United States
+brown_coal_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("United States - Brown Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+gbc_01 <- brown_coal_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(gbc_01$gdp_per_capita, gbc_01$quantity, method = "pearson")
+
+
+# 2: Germany
+brown_coal_10_gdp %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Germany - Brown Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+gbc_02 <- brown_coal_10_gdp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(gbc_02$gdp_per_capita, gbc_02$quantity, method = "pearson")
+
+
+# 3: Russian Federation
+brown_coal_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Russian Federation - Brown Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+gbc_03 <- brown_coal_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(gbc_03$gdp_per_capita, gbc_03$quantity, method = "pearson")
+
+
+# 4: Poland
+brown_coal_10_gdp %>% filter(country_or_area == "Poland") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Poland - Brown Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+gbc_04 <- brown_coal_10_gdp %>% filter(country_or_area == "Poland") %>% unnest(data)
+
+cor.test(gbc_04$gdp_per_capita, gbc_04$quantity, method = "pearson")
+
+
+# 5: Australia
+brown_coal_10_gdp %>% filter(country_or_area == "Australia") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Australia - Brown Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+gbc_05 <- brown_coal_10_gdp %>% filter(country_or_area == "Australia") %>% unnest(data)
+
+cor.test(gbc_05$gdp_per_capita, gbc_05$quantity, method = "pearson")
+
+
+# 6: Greece
+brown_coal_10_gdp %>% filter(country_or_area == "Greece") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Greece - Brown Coal Transformation vs GDP per capita (1990 - 2015)") 
+
+gbc_06 <- brown_coal_10_gdp %>% filter(country_or_area == "Greece") %>% unnest(data)
+
+cor.test(gbc_06$gdp_per_capita, gbc_06$quantity, method = "pearson")
+```
+
+
+# (iii) Fuel Oil:
+```{r}
+# Now we look at fuel oil:
+
+fuel_oil_10_gdp
+
+# These are the 10 countries that we need to investigate.
+
+# 1: Russian Federation
+fuel_oil_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Russian Federation - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_01 <- fuel_oil_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(gfo_01$gdp_per_capita, gfo_01$quantity, method = "pearson")
+
+
+# 2: Japan
+fuel_oil_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Japan - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_02 <- fuel_oil_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(gfo_02$gdp_per_capita, gfo_02$quantity, method = "pearson")
+
+
+# 3: United States
+fuel_oil_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("United States - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_03 <- fuel_oil_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(gfo_03$gdp_per_capita, gfo_03$quantity, method = "pearson")
+
+
+# 4: Italy
+fuel_oil_10_gdp %>% filter(country_or_area == "Italy") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Italy - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_04 <- fuel_oil_10_gdp %>% filter(country_or_area == "Italy") %>% unnest(data)
+
+cor.test(gfo_04$gdp_per_capita, gfo_04$quantity, method = "pearson")
+
+
+# 5: Mexico
+fuel_oil_10_gdp %>% filter(country_or_area == "Mexico") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Mexico - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_05 <- fuel_oil_10_gdp %>% filter(country_or_area == "Mexico") %>% unnest(data)
+
+cor.test(gfo_05$gdp_per_capita, gfo_05$quantity, method = "pearson")
+
+
+# 6: China
+fuel_oil_10_gdp %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("China - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_06 <- fuel_oil_10_gdp %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(gfo_06$gdp_per_capita, gfo_06$quantity, method = "pearson")
+
+
+# 7: Belarus
+fuel_oil_10_gdp %>% filter(country_or_area == "Belarus") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Belarus - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_07 <- fuel_oil_10_gdp %>% filter(country_or_area == "Belarus") %>% unnest(data)
+
+cor.test(gfo_07$gdp_per_capita, gfo_07$quantity, method = "pearson")
+
+
+# 8: United Kingdom
+fuel_oil_10_gdp %>% filter(country_or_area == "United Kingdom") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("United Kingdom - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_08 <- fuel_oil_10_gdp %>% filter(country_or_area == "United Kingdom") %>% unnest(data)
+
+cor.test(gfo_08$gdp_per_capita, gfo_08$quantity, method = "pearson")
+
+
+# 9: Romania
+fuel_oil_10_gdp %>% filter(country_or_area == "Romania") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Romania - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_09 <- fuel_oil_10_gdp %>% filter(country_or_area == "Romania") %>% unnest(data)
+
+cor.test(gfo_09$gdp_per_capita, gfo_09$quantity, method = "pearson")
+
+
+# 10: Ukraine
+fuel_oil_10_gdp %>% filter(country_or_area == "Ukraine") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Ukraine - Fuel Oil Transformation vs GDP per capita (1990 - 2015)")  
+
+gfo_10 <- fuel_oil_10_gdp %>% filter(country_or_area == "Ukraine") %>% unnest(data)
+
+cor.test(gfo_10$gdp_per_capita, gfo_10$quantity, method = "pearson")
+```
+
+
+
+
+# (iv) Gas/Diesel Oil:
+```{r}
+# Now we look at gas/diesel oil:
+
+gasdiesel_10_gdp
+
+# Nine countries:
+
+# 1: Iraq
+gasdiesel_10_gdp %>% filter(country_or_area == "Iraq") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Iraq - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_01 <- gasdiesel_10_gdp %>% filter(country_or_area == "Iraq") %>% unnest(data)
+
+cor.test(ggd_01$gdp_per_capita, ggd_01$quantity, method = "pearson")
+
+
+# 2: Saudi Arabia
+gasdiesel_10_gdp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Saudi Arabia - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_02 <- gasdiesel_10_gdp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data)
+
+cor.test(ggd_02$gdp_per_capita, ggd_02$quantity, method = "pearson")
+
+
+# 3: Indonesia
+gasdiesel_10_gdp %>% filter(country_or_area == "Indonesia") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Indonesia - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_03 <- gasdiesel_10_gdp %>% filter(country_or_area == "Iraq") %>% unnest(data)
+
+cor.test(ggd_03$gdp_per_capita, ggd_03$quantity, method = "pearson")
+
+
+# 4: United States
+gasdiesel_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("United States - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_04 <- gasdiesel_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(ggd_04$gdp_per_capita, ggd_04$quantity, method = "pearson")
+
+
+# 5: Iran (Islamic Rep. of)
+gasdiesel_10_gdp %>% filter(country_or_area == "Iran (Islamic Rep. of)") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Iran (Islamic Rep. of) - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_05 <- gasdiesel_10_gdp %>% filter(country_or_area == "Iran (Islamic Rep. of)") %>% unnest(data)
+
+cor.test(ggd_05$gdp_per_capita, ggd_05$quantity, method = "pearson")
+
+
+# 6: Russian Federation
+gasdiesel_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Russian Federation - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_06 <- gasdiesel_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(ggd_06$gdp_per_capita, ggd_06$quantity, method = "pearson")
+
+
+# 7: China
+gasdiesel_10_gdp %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("China - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_07 <- gasdiesel_10_gdp %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(ggd_07$gdp_per_capita, ggd_07$quantity, method = "pearson")
+
+
+# 8: Germany
+gasdiesel_10_gdp %>% filter(country_or_area == "Iraq") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Germany - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_08 <- gasdiesel_10_gdp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(ggd_08$gdp_per_capita, ggd_08$quantity, method = "pearson")
+
+
+# 9: Japan
+gasdiesel_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Japan - Gas/Diesel Oil Transformation vs GDP per capita (1990 - 2015)")   
+
+ggd_09 <- gasdiesel_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(ggd_09$gdp_per_capita, ggd_09$quantity, method = "pearson")
+```
+
+
+
+
+(v) Natural Gas:
+```{r}
+# Lastly there is Natural Gas:
+
+natural_gas_10_gdp
+
+# There are 9 countries:
+
+# 1: Belarus
+natural_gas_10_gdp %>% filter(country_or_area == "Belarus") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Belarus - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_01 <- natural_gas_10_gdp %>% filter(country_or_area == "Belarus") %>% unnest(data)
+
+cor.test(gng_01$gdp_per_capita, gng_01$quantity, method = "pearson")
+
+
+# 2: Germany
+natural_gas_10_gdp %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Germany - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_02 <- natural_gas_10_gdp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(gng_02$gdp_per_capita, gng_02$quantity, method = "pearson")
+
+
+# 3: Japan
+natural_gas_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Japan - Natural Gas Transformation vs GDP per capita (1990 - 2015)")
+
+gng_03 <- natural_gas_10_gdp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(gng_03$gdp_per_capita, gng_03$quantity, method = "pearson")
+
+
+# 4: Romania
+natural_gas_10_gdp %>% filter(country_or_area == "Romania") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Romania - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_04 <- natural_gas_10_gdp %>% filter(country_or_area == "Romania") %>% unnest(data)
+
+cor.test(gng_04$gdp_per_capita, gng_04$quantity, method = "pearson")
+
+
+# 5: Russian Federation
+natural_gas_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Russian Federation - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_05 <- natural_gas_10_gdp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(gng_05$gdp_per_capita, gng_05$quantity, method = "pearson")
+
+
+# 6: Saudi Arabia
+natural_gas_10_gdp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Saudi Arabia - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_06 <- natural_gas_10_gdp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data)
+
+cor.test(gng_06$gdp_per_capita, gng_06$quantity, method = "pearson")
+
+
+# 7: Ukraine
+natural_gas_10_gdp %>% filter(country_or_area == "Ukraine") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Ukraine - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_07 <- natural_gas_10_gdp %>% filter(country_or_area == "Ukraine") %>% unnest(data)
+
+cor.test(gng_07$gdp_per_capita, gng_07$quantity, method = "pearson")
+
+
+# 8: United States
+natural_gas_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("United States - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_08 <- natural_gas_10_gdp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(gng_08$gdp_per_capita, gng_08$quantity, method = "pearson")
+
+
+# 9: Uzbekistan
+natural_gas_10_gdp %>% filter(country_or_area == "Uzbekistan") %>% unnest(data) %>% ggscatter(x = "gdp_per_capita", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="GDP per capita", labels = comma)+ ggtitle("Uzbekistan - Natural Gas Transformation vs GDP per capita (1990 - 2015)")  
+
+gng_09 <- natural_gas_10_gdp %>% filter(country_or_area == "Uzbekistan") %>% unnest(data)
+
+cor.test(gng_09$gdp_per_capita, gng_09$quantity, method = "pearson")
+```
+
+
+Part 3: Energy Transformations against Mean Temperatures.
+
+For this analysis, we downloaded the dataset at World Bank Group: Climate Change Knowledge Portal
+http://sdwebx.worldbank.org/climateportal/index.cfm?page=downscaled_data_download&menu=historical
+
+The countries downloaded into an xls file (1901 to 2015) were:
+Australia
+Belarus
+Czech Republic
+China
+Germany
+Greece
+India
+Indonesia
+Iran
+Iraq
+Italy
+Japan
+Kazkhstan
+Libya
+Mexico
+Poland
+Romania
+Russia
+Saudia Arabia
+Serbia and Montenegro
+South Africa
+Ukraine
+United Kingdom
+United States
+Uzbekistan
+
+```{r}
+library(readxl)
+temps <- read_xls("~/Documents/Class/CKME-136/Workshop/CKME136_Capstone/Data/temp_1901_2015.xls")
+
+# We examine this data
+head(temps)
+summary(temps)
+str(temps)
+
+anyNA(temps$tas)
+anyNA(temps$Year)
+anyNA(temps$Month)
+
+# No missing temperatures, years, or months
+
+ncol(temps)
+
+nrow(temps)
+
+# We need to drop the redundant columns
+temps <- temps %>% select(-c(ISO3, ISO2))
+
+
+# Next, we downloaded the code table to correlate the country code to the nation name. This xlsx dataset was obtained from:
+# http://kejser.org/resources/free-data/free-data-countries-world/
+
+nations <- read_xlsx("~/Documents/Class/CKME-136/Workshop/CKME136_Capstone/Data/country.xlsx")
+
+# Quick examination of this data
+head(nations)
+summary(nations)
+str(nations)
+
+anyNA(nations$Alpha3Code)
+anyNA(nations$CountryName)
+# Nothing is missing
+
+# Problem is that the Alpha 3 code is in lower case
+nations$Alpha3Code <- toupper(nations$Alpha3Code)
+
+# We select the columns of interest
+nations <- nations %>% select(Alpha3Code, CountryName)
+
+# We need to join these two tables together by 3 letter code. First to rename the column headings
+colnames(temps) <- c("tas", "Year", "Month", "Alpha3Code")
+
+# The year column of table is character, we should to change to number
+temps$Year <- as.numeric(as.character(temps$Year))
+summary(temps$Year)
+
+# Also, the dataset ranges from 1901 to 2015. We need to narrow this down
+temps <- temps %>% filter(between(Year, 1990, 2014))
+
+# Now we join our tables together and group by CountryName and Year
+new_temps <- inner_join(nations, temps, by = "Alpha3Code")  %>% select(-Alpha3Code) %>% group_by(CountryName, Year) %>% nest()
+
+head(new_temps)
+
+# The temperature data we have is by month, we need to generate mean temperature data
+new_temps <- new_temps %>% mutate(mean_temp = sapply(map(data, "tas"), mean, na.rm = TRUE))
+
+# Then we can drop the monthly data, and filter out only the distinct entries
+new_temps <- new_temps %>% unnest() %>% select(-c(tas, Month)) %>% distinct(CountryName, Year, mean_temp) 
+
+# Lastly need to list the names and rename Russia" to "Russian Federation" for consistency. Also with "Iran" to "Iran (Islamic Rep. of)"
+
+unique(new_temps$CountryName)
+
+# We need to rename "Iran" to "Iran (Islamic Rep. of)" for consistency. Also with 
+length(grep("\\<Iran\\>", new_temps$CountryName))
+
+# 25 Occurrences of "Iran" in this data - we need to rename these
+new_temps$CountryName <- as.character(new_temps$CountryName)
+new_temps$CountryName[new_temps$CountryName == "Iran"] <- "Iran (Islamic Rep. of)"
+new_temps$CountryName <- as.factor(new_temps$CountryName)
+
+# Sanity check
+unique(new_temps$CountryName)
+
+# We also need to rename the column headings to that of our prepared data for merging.
+names(new_temps) <- c("country_or_area", "year", "mean_temp")
+```
+
+
+Now we can join on our temperature tables.
+```{r}
+hard_coal_10_tmp <- inner_join(hard_coal_10, new_temps, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+brown_coal_10_tmp <- inner_join(brown_coal_10, new_temps, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+fuel_oil_10_tmp <- inner_join(fuel_oil_10, new_temps, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+gasdiesel_10_tmp <- inner_join(gasdiesel_10, new_temps, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+
+natural_gas_10_tmp <- inner_join(natural_gas_10, new_temps, by = c("country_or_area", "year")) %>% group_by(country_or_area) %>% nest()
+```
+
+
+
+# (i) Hard Coal
+```{r}
+# Now we look at our hard coal data against temperature
+
+hard_coal_10_tmp
+
+# These are the 10 countries that we need to investigate.
+
+# 1: United States
+hard_coal_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("United States - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_01 <- hard_coal_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(hct_01$mean_temp, hct_01$quantity, method = "pearson")
+
+
+# 2: China
+hard_coal_10_tmp %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("China - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_02 <- hard_coal_10_tmp %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(hct_02$mean_temp, hct_02$quantity, method = "pearson")
+
+
+# 3: Russian Federation
+hard_coal_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Russian Federation - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_03 <- hard_coal_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(hct_03$mean_temp, hct_03$quantity, method = "pearson")
+
+
+# 4: India
+hard_coal_10_tmp %>% filter(country_or_area == "India") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("India - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_04 <- hard_coal_10_tmp %>% filter(country_or_area == "India") %>% unnest(data)
+
+cor.test(hct_04$mean_temp, hct_04$quantity, method = "pearson")
+
+
+# 5: United Kingdom
+hard_coal_10_tmp %>% filter(country_or_area == "United Kingdom") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("United Kingdom - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_05 <- hard_coal_10_tmp %>% filter(country_or_area == "United Kingdom") %>% unnest(data)
+
+cor.test(hct_05$mean_temp, hct_05$quantity, method = "pearson")
+
+
+# 6: Poland
+hard_coal_10_tmp %>% filter(country_or_area == "Poland") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Poland - Hard Coal Transformation vs Mean Temperature (1990 - 2015)")
+
+hct_06 <- hard_coal_10_tmp %>% filter(country_or_area == "Poland") %>% unnest(data)
+
+cor.test(hct_06$mean_temp, hct_06$quantity, method = "pearson")
+
+
+# 7: South Africa
+hard_coal_10_tmp %>% filter(country_or_area == "South Africa") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("South Africa - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_07 <- hard_coal_10_tmp %>% filter(country_or_area == "South Africa") %>% unnest(data)
+
+cor.test(hct_07$mean_temp, hct_07$quantity, method = "pearson")
+
+
+# 8: Germany
+hard_coal_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Germany - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_08 <- hard_coal_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(hct_08$mean_temp, hct_08$quantity, method = "pearson")
+
+
+# 9: Kazakhstan
+hard_coal_10_tmp %>% filter(country_or_area == "Kazakhstan") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Kazakhstan - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_09 <- hard_coal_10_tmp %>% filter(country_or_area == "Kazakhstan") %>% unnest(data)
+
+cor.test(hct_09$mean_temp, hct_09$quantity, method = "pearson")
+
+
+# 10: Japan
+hard_coal_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Japan - Hard Coal Transformation vs Mean Temperature (1990 - 2015)") 
+
+hct_10 <- hard_coal_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(hct_10$mean_temp, hct_10$quantity, method = "pearson")
+```
+
+# From all of this data we can conclude that the correlation bewteen coal transformation and temperature is not significant.
+
+
+# (ii) Brown Coal
+```{r}
+# Now we look at brown coal:
+
+brown_coal_10_tmp
+
+# These are the 6 countries that we need to investigate.
+
+# 1: United States
+brown_coal_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("United States - Brown Coal Transformation vs Mean Temperature (1990 - 2015)")
+
+bct_01 <- brown_coal_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(bct_01$mean_temp, bct_01$quantity, method = "pearson")
+
+
+# 2: Germany
+brown_coal_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Germany - Brown Coal Transformation vs Mean Temperature (1990 - 2015)")
+
+bct_02 <- brown_coal_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(bct_02$mean_temp, bct_02$quantity, method = "pearson")
+
+
+# 3: Russian Federation
+brown_coal_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Russian Federation - Brown Coal Transformation vs Mean Temperature (1990 - 2015)")
+
+bct_03 <- brown_coal_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(bct_03$mean_temp, bct_03$quantity, method = "pearson")
+
+
+
+# 4: Poland
+brown_coal_10_tmp %>% filter(country_or_area == "Poland") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Poland - Brown Coal Transformation vs Mean Temperature (1990 - 2015)")
+
+bct_04 <- brown_coal_10_tmp %>% filter(country_or_area == "Poland") %>% unnest(data)
+
+cor.test(bct_04$mean_temp, bct_04$quantity, method = "pearson")
+
+
+# 5: Australia
+brown_coal_10_tmp %>% filter(country_or_area == "Australia") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Australia - Brown Coal Transformation vs Mean Temperature (1990 - 2015)")
+
+bct_05 <- brown_coal_10_tmp %>% filter(country_or_area == "Australia") %>% unnest(data)
+
+cor.test(bct_05$mean_temp, bct_05$quantity, method = "pearson")
+
+
+# 6: Greece
+brown_coal_10_tmp %>% filter(country_or_area == "Greece") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Greece - Brown Coal Transformation vs Mean Temperature (1990 - 2015)")
+
+bct_06 <- brown_coal_10_tmp %>% filter(country_or_area == "Greece") %>% unnest(data)
+
+cor.test(bct_06$mean_temp, bct_06$quantity, method = "pearson")
+```
+
+
+
+# (iii) Fuel Oil:
+```{r}
+# Now we look at fuel oil:
+
+fuel_oil_10_tmp
+
+# These are the 9 countries that we need to investigate.
+
+# 1: Russian Federation
+fuel_oil_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Russian Federation - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_01 <- fuel_oil_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(fot_01$mean_temp, fot_01$quantity, method = "pearson")
+
+
+# 2: Japan
+fuel_oil_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Japan - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_02 <- fuel_oil_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(fot_02$mean_temp, fot_02$quantity, method = "pearson")
+
+
+# 3: United States
+fuel_oil_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("United States - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_03 <- fuel_oil_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(fot_03$mean_temp, fot_03$quantity, method = "pearson")
+
+
+# 4: Italy
+fuel_oil_10_tmp %>% filter(country_or_area == "Italy") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Italy - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_04 <- fuel_oil_10_tmp %>% filter(country_or_area == "Italy") %>% unnest(data)
+
+cor.test(fot_04$mean_temp, fot_04$quantity, method = "pearson")
+
+
+# 5: Mexico
+fuel_oil_10_tmp %>% filter(country_or_area == "Mexico") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Mexico - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_05 <- fuel_oil_10_tmp %>% filter(country_or_area == "Mexico") %>% unnest(data)
+
+cor.test(fot_05$mean_temp, fot_05$quantity, method = "pearson")
+
+
+# 6: China
+fuel_oil_10_tmp %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("China - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_06 <- fuel_oil_10_tmp %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(fot_06$mean_temp, fot_06$quantity, method = "pearson")
+
+
+# 7: Belarus
+fuel_oil_10_tmp %>% filter(country_or_area == "Belarus") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Belarus - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_07 <- fuel_oil_10_tmp %>% filter(country_or_area == "Belarus") %>% unnest(data)
+
+cor.test(fot_07$mean_temp, fot_07$quantity, method = "pearson")
+
+
+# 8: United Kingdom
+fuel_oil_10_tmp %>% filter(country_or_area == "United Kingdom") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("United Kingdom - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_08 <- fuel_oil_10_tmp %>% filter(country_or_area == "United Kingdom") %>% unnest(data)
+
+cor.test(fot_08$mean_temp, fot_08$quantity, method = "pearson")
+
+
+# 09: Ukraine
+fuel_oil_10_tmp %>% filter(country_or_area == "Ukraine") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Ukraine - Fuel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+fot_09 <- fuel_oil_10_tmp %>% filter(country_or_area == "Ukraine") %>% unnest(data)
+
+cor.test(fot_09$mean_temp, fot_09$quantity, method = "pearson")
+```
+
+
+# (iv) Gas/Diesel Oil:
+```{r}
+# Now we look at gas/diesel oil:
+
+gasdiesel_10_tmp
+
+# Once again 10 countries:
+
+# 1: Iraq
+gasdiesel_10_tmp %>% filter(country_or_area == "Iraq") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Iraq - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_01 <- gasdiesel_10_tmp %>% filter(country_or_area == "Iraq") %>% unnest(data)
+
+cor.test(gdt_01$mean_temp, gdt_01$quantity, method = "pearson")
+
+
+# 2: Saudi Arabia
+gasdiesel_10_tmp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Saudi Arabia - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_02 <- gasdiesel_10_tmp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data)
+
+cor.test(gdt_02$mean_temp, gdt_02$quantity, method = "pearson")
+
+
+# 3: Indonesia
+gasdiesel_10_tmp %>% filter(country_or_area == "Indonesia") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Indonesia - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_03 <- gasdiesel_10_tmp %>% filter(country_or_area == "Iraq") %>% unnest(data)
+
+cor.test(gdt_03$mean_temp, gdt_03$quantity, method = "pearson")
+
+
+# 4: United States
+gasdiesel_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("United States - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_04 <- gasdiesel_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(gdt_04$mean_temp, gdt_04$quantity, method = "pearson")
+
+
+# 5: Iran (Islamic Rep. of)
+gasdiesel_10_tmp %>% filter(country_or_area == "Iran (Islamic Rep. of)") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Iran (Islamic Rep. of) - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_05 <- gasdiesel_10_tmp %>% filter(country_or_area == "Iran (Islamic Rep. of)") %>% unnest(data)
+
+cor.test(gdt_05$mean_temp, gdt_05$quantity, method = "pearson")
+
+
+# 6: Russian Federation
+gasdiesel_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Russian Federation - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_06 <- gasdiesel_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(gdt_06$mean_temp, gdt_06$quantity, method = "pearson")
+
+
+# 7: China
+gasdiesel_10_tmp %>% filter(country_or_area == "China") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("China - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_07 <- gasdiesel_10_tmp %>% filter(country_or_area == "China") %>% unnest(data)
+
+cor.test(gdt_07$mean_temp, gdt_07$quantity, method = "pearson")
+
+
+# 8: Germany
+gasdiesel_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Germany - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_08 <- gasdiesel_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(gdt_08$mean_temp, gdt_08$quantity, method = "pearson")
+
+
+# 9: Japan
+gasdiesel_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Japan - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_09 <- gasdiesel_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(gdt_09$mean_temp, gdt_09$quantity, method = "pearson")
+
+
+# 10: Libya
+gasdiesel_10_tmp %>% filter(country_or_area == "Libya") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Metric tons (thousand)", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Libya - Gas/Diesel Oil Transformation vs Mean Temperature (1990 - 2015)")
+
+gdt_10 <- gasdiesel_10_tmp %>% filter(country_or_area == "Libya") %>% unnest(data)
+
+cor.test(gdt_10$mean_temp, gdt_10$quantity, method = "pearson")
+```
+
+
+
+(v) Natural Gas:
+```{r}
+# Lastly there is Natural Gas:
+
+natural_gas_10_tmp
+
+# There are 8 countries:
+
+# 1: Belarus
+natural_gas_10_tmp %>% filter(country_or_area == "Belarus") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Belarus - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_01 <- natural_gas_10_tmp %>% filter(country_or_area == "Belarus") %>% unnest(data)
+
+cor.test(ngt_01$mean_temp, ngt_01$quantity, method = "pearson")
+
+
+# 2: Germany
+natural_gas_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Germany - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_02 <- natural_gas_10_tmp %>% filter(country_or_area == "Germany") %>% unnest(data)
+
+cor.test(ngt_02$mean_temp, ngt_02$quantity, method = "pearson")
+
+
+# 3: Japan
+natural_gas_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Japan - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_03 <- natural_gas_10_tmp %>% filter(country_or_area == "Japan") %>% unnest(data)
+
+cor.test(ngt_03$mean_temp, ngt_03$quantity, method = "pearson")
+
+
+# 4: Russian Federation
+natural_gas_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Russian Federation - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_04 <- natural_gas_10_tmp %>% filter(country_or_area == "Russian Federation") %>% unnest(data)
+
+cor.test(ngt_04$mean_temp, ngt_04$quantity, method = "pearson")
+
+
+# 5: Saudi Arabia
+natural_gas_10_tmp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Saudi Arabia - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_05 <- natural_gas_10_tmp %>% filter(country_or_area == "Saudi Arabia") %>% unnest(data)
+
+cor.test(ngt_05$mean_temp, ngt_05$quantity, method = "pearson")
+
+
+# 6: Ukraine
+natural_gas_10_tmp %>% filter(country_or_area == "Ukraine") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Ukraine - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_06 <- natural_gas_10_tmp %>% filter(country_or_area == "Ukraine") %>% unnest(data)
+
+cor.test(ngt_06$mean_temp, ngt_06$quantity, method = "pearson")
+
+
+# 7: United States
+natural_gas_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("United States - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_07 <- natural_gas_10_tmp %>% filter(country_or_area == "United States") %>% unnest(data)
+
+cor.test(ngt_07$mean_temp, ngt_07$quantity, method = "pearson")
+
+
+# 8: Uzbekistan
+natural_gas_10_tmp %>% filter(country_or_area == "Uzbekistan") %>% unnest(data) %>% ggscatter(x = "mean_temp", y = "quantity", add = "reg.line", conf.int = TRUE, cor.coef = TRUE, cor.method = "pearson") + scale_y_continuous(name="Terajoules", labels = comma) +  scale_x_continuous(name="Mean Temperature (Celsius)", labels = comma)+ ggtitle("Uzbekistan - Natural Gas Transformation vs Mean Temperature (1990 - 2015)")
+
+ngt_08 <- natural_gas_10_tmp %>% filter(country_or_area == "Uzbekistan") %>% unnest(data)
+
+cor.test(ngt_08$mean_temp, ngt_08$quantity, method = "pearson")
+```
+
+
+
